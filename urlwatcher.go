@@ -113,7 +113,7 @@ type ResourceWatcher struct {
 	resources      map[string]*resource
 	resourcesMutex sync.Mutex
 
-	watchers             map[string]func(string, []byte)
+	watchers             map[string]func(time.Time, string, []byte)
 	watcherToresource    map[string]string
 	watchersFromResource map[string][]string
 	watchersMutex        sync.Mutex
@@ -127,7 +127,7 @@ func NewWatcher() *ResourceWatcher {
 	r := &ResourceWatcher{
 		resources: make(map[string]*resource),
 
-		watchers:             make(map[string]func(string, []byte)),
+		watchers:             make(map[string]func(time.Time, string, []byte)),
 		watcherToresource:    make(map[string]string),
 		watchersFromResource: make(map[string][]string),
 
@@ -193,14 +193,15 @@ func (r *ResourceWatcher) Unwatch(key string) bool {
 }
 
 func (r *ResourceWatcher) broadcast(key string, data []byte) {
+	now := time.Now()
 	r.watchersMutex.Lock()
 	for _, watcher_id := range r.watchersFromResource[key] {
-		r.watchers[watcher_id](key, data)
+		r.watchers[watcher_id](now, key, data)
 	}
 	r.watchersMutex.Unlock()
 }
 
-func (r *ResourceWatcher) Subscribe(key string, callback func(string, []byte)) func() {
+func (r *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
 	watcher_id := uuid.NewString()
 
 	r.watchersMutex.Lock()
@@ -212,7 +213,7 @@ func (r *ResourceWatcher) Subscribe(key string, callback func(string, []byte)) f
 	r.resourcesMutex.Lock()
 	if res, ok := r.resources[key]; ok {
 		if len(res.data) > 0 {
-			callback(key, res.data)
+			callback(time.Now(), key, res.data)
 		}
 	}
 	r.resourcesMutex.Unlock()

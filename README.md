@@ -51,8 +51,9 @@ import (
     urlwatcher "github.com/poolpOrg/go-urlwatcher"
 )
 
-func notifyMe(key string, data []byte) {
-	fmt.Printf("content has changed at %s, new checksum: %x\n", key, sha256.Sum256(data))
+func notifyMe(timestamp time.Time, key string, data []byte) {
+    fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
+        timestamp, key, sha256.Sum256(data))
 }
 
 func main() {
@@ -80,9 +81,10 @@ Once running:
 ```sh
 $ go run main.go
 % ./tester 
-content has changed at https://poolp.org, new checksum: 2621d0b4ee53a3bc338a62272b173b5c99f860aec93204cb5df3688335d10deb
-content has changed at https://poolp.org/test, new checksum: 907bde3816465e678dd2d661bf3d84f933e71c5e2ea25543247df7a5858dfa55
-content has changed at https://poolp.org/test, new checksum: bbdf7b8c3cc5267ca09e667e50c5eaa0b7ae206093870a151f5dc8759467486d
+2024-03-13 14:03:42.917877 +0100 CET m=+0.159545001: content has changed at https://poolp.org, new checksum: 2621d0b4ee53a3bc338a62272b173b5c99f860aec93204cb5df3688335d10deb
+2024-03-13 14:03:42.937477 +0100 CET m=+0.179145876: content has changed at https://poolp.org/test, new checksum: bbdf7b8c3cc5267ca09e667e50c5eaa0b7ae206093870a151f5dc8759467486d
+2024-03-13 14:03:58.019213 +0100 CET m=+15.261034210: content has changed at https://poolp.org/test, new checksum: 907bde3816465e678dd2d661bf3d84f933e71c5e2ea25543247df7a5858dfa55
+
 ```
 
 

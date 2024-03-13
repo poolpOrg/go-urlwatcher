@@ -8,8 +8,9 @@ import (
 	urlwatcher "github.com/poolpOrg/go-urlwatcher"
 )
 
-func notifyMe(key string, data []byte) {
-	fmt.Printf("content has changed at %s, new checksum: %x\n", key, sha256.Sum256(data))
+func notifyMe(timestamp time.Time, key string, data []byte) {
+	fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
+		timestamp, key, sha256.Sum256(data))
 }
 
 func main() {
