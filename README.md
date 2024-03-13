@@ -37,6 +37,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 A watcher keeps track of a list of URLs and will periodically fetch their content to check if it has changed.
 
+Upon error, it will retry with a capped exponential backoff.
+
 Upon changes, it can trigger callbacks to notify of the new content for a given URL.
 
 
@@ -90,8 +92,8 @@ $ go run main.go
 
 ## What's missing ?
 
-- code cleanup
-- configurability of timeouts and other parameters
+- configurability of HTTP timeouts
+- configurability of retry parameters
 
 
 ## Special thanks
