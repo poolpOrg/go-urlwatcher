@@ -92,11 +92,13 @@ $ go run main.go
 
 The default values for the configuration are:
 ```go
-WatcherConfig{
+Config{
 	RequestTimeout:   5 * time.Second,
 	RefreshInterval:  15 * time.Minute,
 	ErrorMaxInterval: 15 * time.Minute,
 	TickerInterval:   1 * time.Second,
+    MaxParallelFetches: 10,
+    MaxParallelCallbacks: 100,
 }
 ```
 
@@ -106,11 +108,13 @@ Where `.RequestTimeout` is the timeout for the entire HTTP request,
 that is performs an exponential backoff capped at this value,
 and `.TickerInterval` is the minimal interval at which the watcher will check for new events.
 
+The `.MaxParallelFetches` is the maximum number of parallel fetches that are triggered concurrently,
+on different URLs.
 
-## What's missing ?
-
-- configurability of HTTP timeouts
-- configurability of retry parameters
+The `.MaxParallelCallbacks` is the maximum number of parallel callbacks that are triggered concurrently,
+if there are more than this number of callbacks to trigger,
+the watcher will queue them and trigger the exceeding ones as the previous ones complete.
+This is to allow setting a very large number of callbacks without implying a similar number of goroutines.
 
 
 ## Special thanks
