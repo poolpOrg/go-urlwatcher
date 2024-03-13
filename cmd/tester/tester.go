@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	urlwatcher "github.com/poolpOrg/go-urlwatcher"
+	"github.com/poolpOrg/go-urlwatcher"
 )
 
 func notifyMe(timestamp time.Time, key string, data []byte) {
@@ -14,9 +14,14 @@ func notifyMe(timestamp time.Time, key string, data []byte) {
 }
 
 func main() {
-	r := urlwatcher.NewWatcher()
+	r := urlwatcher.NewWatcher(&urlwatcher.DefaultWatcherConfig)
+	//r := urlwatcher.NewWatcher(nil)
+	//r := urlwatcher.NewWatcher(&urlwatcher.WatcherConfig{
+	//	RequestTimeout: 10 * time.Second,
+	//})
 	r.Watch("https://poolp.org")
 	r.Watch("https://poolp.org/test")
+	r.Watch("http://localhost:8012")
 
 	// notify me forever of any change in https://poolp.org content
 	r.Subscribe("https://poolp.org", notifyMe)

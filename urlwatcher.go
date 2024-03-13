@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -35,66 +36,47 @@ func newResource(key string, updater func(string) ([]byte, error)) *resource {
 	}
 }
 
-func fetcher(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
-func (r *resource) update(broadcast func(string, []byte)) {
+func (r *resource) update(config *WatcherConfig, broadcast func(string, []byte)) {
 	if r.inProgress {
-		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
+		fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
 		return
 	}
 	r.inProgress = true
 	defer func() { r.inProgress = false }()
 
-	if time.Since(r.lastRun) < 5*time.Second {
+	retryDelay := (1 << r.n_attempts) * time.Second
+	if retryDelay > config.ErrorMaxInterval {
+		retryDelay = config.ErrorMaxInterval
+	}
+	if time.Since(r.lastError) < retryDelay {
 		return
 	}
 
-	if time.Since(r.lastError) < (1<<r.n_attempts)*time.Second {
-		return
-	}
-
-	if time.Since(r.lastUpdate) < 15*time.Second {
+	if time.Since(r.lastUpdate) < config.RefreshInterval {
 		return
 	}
 
 	n_attempts := r.n_attempts
 	if data, err := r.updater(r.key); err != nil {
+		n_attempts++
+
+		// this is for logging purposes only
 		nextTry := time.Duration(0)
 		r.lastError = time.Now()
-		if n_attempts < 10 {
-			n_attempts++
-		}
 		if !r.lastError.IsZero() {
 			nextTry = (1 << n_attempts) * time.Second
+			if nextTry > config.ErrorMaxInterval {
+				nextTry = config.ErrorMaxInterval
+			}
 		}
-		_ = nextTry
-		//fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), r.key, err, n_attempts, nextTry)
+		fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), r.key, err, n_attempts, nextTry)
+
 	} else if !bytes.Equal(data, r.data) {
 		checksum := sha256.Sum256(data)
 		if len(r.checksum) == 0 {
-			//	fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), r.key, checksum)
+			fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), r.key, checksum)
 		} else {
-			//	fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), r.key, checksum, r.checksum)
+			fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), r.key, checksum, r.checksum)
 		}
 		r.data = data
 		r.checksum = checksum[:]
@@ -102,11 +84,25 @@ func (r *resource) update(broadcast func(string, []byte)) {
 		n_attempts = 0
 		broadcast(r.key, r.data)
 	} else {
-		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
+		fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
 		n_attempts = 0
 	}
 	r.n_attempts = n_attempts
 	r.lastRun = time.Now()
+}
+
+type WatcherConfig struct {
+	RequestTimeout   time.Duration
+	RefreshInterval  time.Duration
+	ErrorMaxInterval time.Duration
+	TickerInterval   time.Duration
+}
+
+var DefaultWatcherConfig = WatcherConfig{
+	RequestTimeout:   5 * time.Second,
+	RefreshInterval:  15 * time.Minute,
+	ErrorMaxInterval: 15 * time.Minute,
+	TickerInterval:   1 * time.Second,
 }
 
 type ResourceWatcher struct {
@@ -121,9 +117,28 @@ type ResourceWatcher struct {
 	addChannel  chan *resource
 	delChannel  chan *resource
 	stopChannel chan struct{}
+
+	config *WatcherConfig
 }
 
-func NewWatcher() *ResourceWatcher {
+func NewWatcher(config *WatcherConfig) *ResourceWatcher {
+	if config == nil {
+		config = &DefaultWatcherConfig
+	} else {
+		if config.RequestTimeout == time.Duration(0) {
+			config.RequestTimeout = DefaultWatcherConfig.RequestTimeout
+		}
+		if config.RefreshInterval == time.Duration(0) {
+			config.RefreshInterval = DefaultWatcherConfig.RefreshInterval
+		}
+		if config.ErrorMaxInterval == time.Duration(0) {
+			config.ErrorMaxInterval = DefaultWatcherConfig.ErrorMaxInterval
+		}
+		if config.TickerInterval == time.Duration(0) {
+			config.TickerInterval = DefaultWatcherConfig.TickerInterval
+		}
+	}
+
 	r := &ResourceWatcher{
 		resources: make(map[string]*resource),
 
@@ -134,6 +149,8 @@ func NewWatcher() *ResourceWatcher {
 		addChannel:  make(chan *resource),
 		delChannel:  make(chan *resource),
 		stopChannel: make(chan struct{}),
+
+		config: config,
 	}
 	go r.run()
 	return r
@@ -143,21 +160,21 @@ func (r *ResourceWatcher) run() {
 	for {
 		select {
 		case <-r.stopChannel:
-			//fmt.Printf("%s: stopping goroutine\n", time.Now())
+			fmt.Printf("%s: stopping goroutine\n", time.Now())
 			return
 
 		case nr := <-r.addChannel:
-			nr.update(r.broadcast)
-			//fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
+			nr.update(r.config, r.broadcast)
+			fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
 
 		case nr := <-r.delChannel:
-			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
+			fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
 			_ = nr
 
 		case <-time.After(1 * time.Second):
 			r.resourcesMutex.Lock()
 			for _, res := range r.resources {
-				go res.update(r.broadcast)
+				go res.update(r.config, r.broadcast)
 			}
 			r.resourcesMutex.Unlock()
 		}
@@ -174,7 +191,27 @@ func (r *ResourceWatcher) Watch(key string) bool {
 	if _, ok := r.resources[key]; ok {
 		return false
 	} else {
-		r.resources[key] = newResource(key, fetcher)
+		r.resources[key] = newResource(key, func(url string) ([]byte, error) {
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			client := &http.Client{
+				Timeout: r.config.RequestTimeout,
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			}
+
+			return io.ReadAll(resp.Body)
+		})
 		r.addChannel <- r.resources[key]
 		return true
 	}
