@@ -59,7 +59,7 @@ func notifyMe(timestamp time.Time, key string, data []byte) {
 }
 
 func main() {
-    r := urlwatcher.NewWatcher()
+    r := urlwatcher.NewWatcher(&urlwatcher.DefaultWatcherConfig)
     r.Watch("https://poolp.org")
     r.Watch("https://poolp.org/test")
 
@@ -88,6 +88,23 @@ $ go run main.go
 2024-03-13 14:03:58.019213 +0100 CET m=+15.261034210: content has changed at https://poolp.org/test, new checksum: 907bde3816465e678dd2d661bf3d84f933e71c5e2ea25543247df7a5858dfa55
 
 ```
+
+
+The default values for the configuration are:
+```go
+WatcherConfig{
+	RequestTimeout:   5 * time.Second,
+	RefreshInterval:  15 * time.Minute,
+	ErrorMaxInterval: 15 * time.Minute,
+	TickerInterval:   1 * time.Second,
+}
+```
+
+Where `.RequestTimeout` is the timeout for the entire HTTP request,
+`.RefreshInterval` is the interval at which the watcher will attempt to refresh the content of the URLs,
+`.ErrorMaxInterval` is the maximum interval at which the watcher will retry a failed request considering
+that is performs an exponential backoff capped at this value,
+and `.TickerInterval` is the minimal interval at which the watcher will check for new events.
 
 
 ## What's missing ?
