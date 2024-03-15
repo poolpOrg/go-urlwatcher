@@ -66,7 +66,6 @@ func main() {
     // notify me forever of any change in https://poolp.org content
     r.Subscribe("https://poolp.org", notifyMe)
 
-
     // notify me of all changes in https://poolp.org/test ...
     unsubscribe := r.Subscribe("https://poolp.org/test", notifyMe)
 
@@ -93,13 +92,13 @@ $ go run main.go
 The default values for the configuration are:
 ```go
 Config {
-	RequestTimeout:   5 * time.Second,
-	RefreshInterval:  15 * time.Minute,
-	ErrorMaxInterval: 15 * time.Minute,
-	TickerInterval:   1 * time.Second,
+    RequestTimeout:   5 * time.Second,
+    RefreshInterval:  15 * time.Minute,
+    ErrorMaxInterval: 15 * time.Minute,
+    TickerInterval:   1 * time.Second,
 
-	MaxParallelFetches: 10,
-	MaxParallelCallbacks: 100,
+    MaxParallelFetches: 10,
+    MaxParallelCallbacks: 100,
 }
 ```
 
