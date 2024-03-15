@@ -61,10 +61,8 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 		if time.Since(r.lastError) < retryDelay {
 			return
 		}
-	} else {
-		if time.Since(r.lastRun) < config.RefreshInterval {
-			return
-		}
+	} else if time.Since(r.lastRun) < config.RefreshInterval {
+		return
 	}
 
 	n_attempts := r.n_attempts
@@ -269,10 +267,10 @@ func (r *ResourceWatcher) broadcast(key string, data []byte) {
 	r.subscribersMutex.Lock()
 	for _, watcher_id := range r.subscribersFromResource[key] {
 		r.callbacksSem <- struct{}{}
-		go func() {
+		go func(_watcher_id string) {
 			defer func() { <-r.callbacksSem }()
-			r.subscribers[watcher_id](now, key, data)
-		}()
+			r.subscribers[_watcher_id](now, key, data)
+		}(watcher_id)
 	}
 	r.subscribersMutex.Unlock()
 }
