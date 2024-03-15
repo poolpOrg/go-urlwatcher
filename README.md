@@ -92,13 +92,14 @@ $ go run main.go
 
 The default values for the configuration are:
 ```go
-Config{
+Config {
 	RequestTimeout:   5 * time.Second,
 	RefreshInterval:  15 * time.Minute,
 	ErrorMaxInterval: 15 * time.Minute,
 	TickerInterval:   1 * time.Second,
-    MaxParallelFetches: 10,
-    MaxParallelCallbacks: 100,
+
+	MaxParallelFetches: 10,
+	MaxParallelCallbacks: 100,
 }
 ```
 
