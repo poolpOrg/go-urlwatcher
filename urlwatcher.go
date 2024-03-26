@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -40,7 +39,7 @@ func newResource(key string, updater func(string) ([]byte, error)) *resource {
 func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 	r.progressMutex.Lock()
 	if r.inProgress {
-		fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
+		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
 		r.progressMutex.Unlock()
 		return
 	}
@@ -70,30 +69,30 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 		n_attempts++
 
 		// this is for logging purposes only
-		nextTry := time.Duration(0)
-		r.lastError = time.Now()
-		if !r.lastError.IsZero() {
-			nextTry = (1 << n_attempts) * time.Second
-			if nextTry > config.ErrorMaxInterval {
-				nextTry = config.ErrorMaxInterval
-			}
-		}
-		fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), r.key, err, n_attempts, nextTry)
+		//nextTry := time.Duration(0)
+		//r.lastError = time.Now()
+		//if !r.lastError.IsZero() {
+		//	nextTry = (1 << n_attempts) * time.Second
+		//	if nextTry > config.ErrorMaxInterval {
+		//		nextTry = config.ErrorMaxInterval
+		//	}
+		//}
+		//fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), r.key, err, n_attempts, nextTry)
 
 	} else if !bytes.Equal(data, r.data) {
 		checksum := sha256.Sum256(data)
-		if len(r.checksum) == 0 {
-			fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), r.key, checksum)
-		} else {
-			fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), r.key, checksum, r.checksum)
-		}
+		//if len(r.checksum) == 0 {
+		//	//fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), r.key, checksum)
+		//} else {
+		//	//fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), r.key, checksum, r.checksum)
+		//}
 		r.data = data
 		r.checksum = checksum[:]
 		r.lastUpdate = time.Now()
 		n_attempts = 0
 		broadcast(r.key, r.data)
 	} else {
-		fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
+		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
 		n_attempts = 0
 	}
 	r.n_attempts = n_attempts
@@ -186,7 +185,7 @@ func (r *ResourceWatcher) run() {
 	for {
 		select {
 		case <-r.stopChannel:
-			fmt.Printf("%s: stopping goroutine\n", time.Now())
+			//fmt.Printf("%s: stopping goroutine\n", time.Now())
 			return
 
 		case nr := <-r.addChannel:
@@ -194,13 +193,13 @@ func (r *ResourceWatcher) run() {
 			// blocking ? goroutine ?
 			nr.update(r.watcherConfig, r.broadcast)
 			<-r.fetchesSem
-			fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
+			//fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
 
 		case nr := <-r.delChannel:
-			fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
+			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
 			_ = nr
 
-		case <-time.After(1 * time.Second):
+		case <-time.After(r.watcherConfig.TickerInterval):
 			r.resourcesMutex.Lock()
 			for _, res := range r.resources {
 				r.fetchesSem <- struct{}{}
