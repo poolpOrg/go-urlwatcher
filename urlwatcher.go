@@ -236,13 +236,15 @@ func (r *ResourceWatcher) Watch(key string) bool {
 			if err != nil {
 				return nil, err
 			}
-			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
 				return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			} else {
+				data, err := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				return data, err
 			}
-
-			return io.ReadAll(resp.Body)
 		})
 		r.addChannel <- r.resources[key]
 		return true
