@@ -13,8 +13,8 @@ import (
 )
 
 type resource struct {
-	key      string
-	updater  func(string) ([]byte, error)
+	key string
+	//	updater  func(string) ([]byte, error)
 	data     []byte
 	checksum []byte
 
@@ -28,11 +28,34 @@ type resource struct {
 	progressMutex sync.Mutex
 }
 
-func newResource(key string, updater func(string) ([]byte, error)) *resource {
+func newResource(key string) *resource {
 	return &resource{
-		key:     key,
-		updater: updater,
-		data:    []byte{},
+		key:  key,
+		data: []byte{},
+	}
+}
+
+func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	} else {
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return data, err
 	}
 }
 
@@ -65,7 +88,7 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 	}
 
 	n_attempts := r.n_attempts
-	if data, err := r.updater(r.key); err != nil {
+	if data, err := r.updater(r.key, config.RequestTimeout); err != nil {
 		n_attempts++
 
 		// this is for logging purposes only
@@ -223,29 +246,7 @@ func (r *ResourceWatcher) Watch(key string) bool {
 	if _, ok := r.resources[key]; ok {
 		return false
 	} else {
-		r.resources[key] = newResource(key, func(url string) ([]byte, error) {
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			client := &http.Client{
-				Timeout: r.watcherConfig.RequestTimeout,
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return nil, err
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				resp.Body.Close()
-				return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-			} else {
-				data, err := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				return data, err
-			}
-		})
+		r.resources[key] = newResource(key)
 		r.addChannel <- r.resources[key]
 		return true
 	}
