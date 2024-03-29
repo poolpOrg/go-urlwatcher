@@ -65,6 +65,7 @@ func (r *resource) update() {
 	r.progressMutex.Lock()
 	if r.inProgress {
 		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), rw.key)
+		defer func() { <-r.watcher.fetchesSem }()
 		r.progressMutex.Unlock()
 		return
 	}
@@ -158,7 +159,8 @@ type ResourceWatcher struct {
 
 	config *Config
 
-	fetchesSem   chan struct{}
+	fetchesSem chan struct{}
+
 	callbacksSem chan struct{}
 }
 
@@ -208,10 +210,7 @@ func NewWatcher(config *Config) *ResourceWatcher {
 
 func (rw *ResourceWatcher) doUpdate(res *resource) {
 	rw.fetchesSem <- struct{}{}
-	go func(nr *resource) {
-		defer func() { <-rw.fetchesSem }()
-		res.update()
-	}(res)
+	go res.update()
 }
 
 func (rw *ResourceWatcher) run() {
@@ -222,7 +221,8 @@ func (rw *ResourceWatcher) run() {
 			return
 
 		case res := <-rw.addChannel:
-			rw.doUpdate(res)
+			rw.fetchesSem <- struct{}{}
+			res.update()
 
 		case nr := <-rw.delChannel:
 			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nrw.key)
@@ -267,20 +267,24 @@ func (rw *ResourceWatcher) Unwatch(key string) bool {
 }
 
 func (rw *ResourceWatcher) notify(watcher_id string, now time.Time, key string, data []byte) {
-	rw.callbacksSem <- struct{}{}
-	go func(_watcher_id string) {
-		defer func() { <-rw.callbacksSem }()
-		rw.subscribers[_watcher_id](now, key, data)
-	}(watcher_id)
+	defer func() { <-rw.callbacksSem }()
+	rw.subscribers[watcher_id](now, key, data)
 }
 
 func (rw *ResourceWatcher) broadcast(key string, data []byte) {
 	now := time.Now()
 	rw.subscribersMutex.Lock()
 	for _, watcher_id := range rw.subscribersFromResource[key] {
-		rw.notify(watcher_id, now, key, data)
+		rw.callbacksSem <- struct{}{}
+		go rw.notify(watcher_id, now, key, data)
 	}
 	rw.subscribersMutex.Unlock()
+}
+
+func (rw *ResourceWatcher) triggerCallback(callback func(time.Time, string, []byte), timestamp time.Time, key string, data []byte) {
+	defer func() { <-rw.callbacksSem }()
+	callback(timestamp, key, data)
+
 }
 
 func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
@@ -296,10 +300,7 @@ func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string
 	if res, ok := rw.resources[key]; ok {
 		if len(res.data) > 0 {
 			rw.callbacksSem <- struct{}{}
-			go func() {
-				defer func() { <-rw.callbacksSem }()
-				callback(time.Now(), key, res.data)
-			}()
+			go rw.triggerCallback(callback, time.Now(), key, res.data)
 		}
 	}
 	rw.resourcesMutex.Unlock()
