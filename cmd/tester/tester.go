@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"time"
@@ -62,20 +61,16 @@ func init() {
 }
 
 func notifyMe(timestamp time.Time, key string, data []byte) {
-	fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
-		timestamp, key, sha256.Sum256(data))
+	//fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
+	//	timestamp, key, sha256.Sum256(data))
 }
 
 func subscriberTest(rw *urlwatcher.ResourceWatcher) {
 	// notify me forever of any change in https://lab.poolp.org/pub/dmesg.txt content
-	rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
-
-	// notify me of all changes in http://localhost:8012 ...
-	unsubscribe := rw.Subscribe("http://localhost:8012", notifyMe)
-
-	// ... and in a minute, I'll unsubscribe from these events
-	time.Sleep(1 * time.Minute)
-	unsubscribe()
+	//unsubscribe := rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
+	//close(unsubscribe)
+	unsubscribe := rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
+	close(unsubscribe)
 }
 
 func main() {
@@ -88,8 +83,8 @@ func main() {
 	rw.Watch("https://lab.poolp.org/pub/dmesg.txt")
 	rw.Watch("http://localhost:8012")
 
-	for i := 0; i < 100000; i++ {
-		go subscriberTest(rw)
+	for {
+		subscriberTest(rw)
 	}
 
 	// wait forever

@@ -287,7 +287,27 @@ func (rw *ResourceWatcher) triggerCallback(callback func(time.Time, string, []by
 
 }
 
-func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
+func (rw *ResourceWatcher) detectCloseAndUnsubscribe(closeChan chan interface{}, watcher_id string, key string) {
+	<-closeChan
+	rw.subscribersMutex.Lock()
+	delete(rw.subscribers, watcher_id)
+	delete(rw.subscriberToResource, watcher_id)
+
+	watchers := make([]string, 0)
+	for _, id := range rw.subscribersFromResource[key] {
+		if id != watcher_id {
+			watchers = append(watchers, id)
+		}
+	}
+	if len(watchers) == 0 {
+		delete(rw.subscribersFromResource, key)
+	} else {
+		rw.subscribersFromResource[key] = watchers
+	}
+	rw.subscribersMutex.Unlock()
+}
+
+func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) chan interface{} {
 	watcher_id := uuid.NewString()
 
 	rw.subscribersMutex.Lock()
@@ -305,22 +325,7 @@ func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string
 	}
 	rw.resourcesMutex.Unlock()
 
-	return func() {
-		rw.subscribersMutex.Lock()
-		delete(rw.subscribers, watcher_id)
-		delete(rw.subscriberToResource, watcher_id)
-
-		watchers := make([]string, 0)
-		for _, id := range rw.subscribersFromResource[key] {
-			if id != watcher_id {
-				watchers = append(watchers, id)
-			}
-		}
-		if len(watchers) == 0 {
-			delete(rw.subscribersFromResource, key)
-		} else {
-			rw.subscribersFromResource[key] = watchers
-		}
-		rw.subscribersMutex.Unlock()
-	}
+	closeChan := make(chan interface{})
+	go rw.detectCloseAndUnsubscribe(closeChan, watcher_id, key)
+	return closeChan
 }
