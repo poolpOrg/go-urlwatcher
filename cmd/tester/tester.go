@@ -35,28 +35,30 @@ func humanizeBytes(bytes uint64) string {
 	}
 }
 
-func init() {
-	go func() {
-		maxMemory := 0
+func initStats() {
+	maxMemory := 0
 
-		for range time.Tick(time.Second) {
-			var memStats runtime.MemStats
-			runtime.ReadMemStats(&memStats)
+	for range time.Tick(time.Second) {
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
 
-			if int(memStats.Alloc) > maxMemory {
-				maxMemory = int(memStats.Alloc)
-			}
-
-			fmt.Printf("Time: %v\n", time.Now().UTC().Format(time.RFC822Z))
-			fmt.Printf("Number of Goroutines: %d\n", runtime.NumGoroutine())
-			fmt.Printf("Memory Allocated: %s (max: %s)\n", humanizeBytes(memStats.Alloc), humanizeBytes(uint64(maxMemory)))
-			fmt.Printf("Total Memory Allocated: %s\n", humanizeBytes(memStats.TotalAlloc))
-			fmt.Printf("System Memory: %s\n", humanizeBytes(memStats.Sys))
-			fmt.Printf("GC: %d\n", memStats.NumGC)
-			// Add more stats here as needed
-			fmt.Println("-------------------------------------")
+		if int(memStats.Alloc) > maxMemory {
+			maxMemory = int(memStats.Alloc)
 		}
-	}()
+
+		fmt.Printf("Time: %v\n", time.Now().UTC().Format(time.RFC822Z))
+		fmt.Printf("Number of Goroutines: %d\n", runtime.NumGoroutine())
+		fmt.Printf("Memory Allocated: %s (max: %s)\n", humanizeBytes(memStats.Alloc), humanizeBytes(uint64(maxMemory)))
+		fmt.Printf("Total Memory Allocated: %s\n", humanizeBytes(memStats.TotalAlloc))
+		fmt.Printf("System Memory: %s\n", humanizeBytes(memStats.Sys))
+		fmt.Printf("GC: %d\n", memStats.NumGC)
+		// Add more stats here as needed
+		fmt.Println("-------------------------------------")
+	}
+}
+
+func init() {
+	go initStats()
 }
 
 func notifyMe(timestamp time.Time, key string, data []byte) {
