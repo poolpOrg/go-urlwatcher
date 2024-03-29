@@ -13,7 +13,8 @@ import (
 )
 
 type resource struct {
-	key string
+	watcher *ResourceWatcher
+	key     string
 	//	updater  func(string) ([]byte, error)
 	data     []byte
 	checksum []byte
@@ -28,10 +29,11 @@ type resource struct {
 	progressMutex sync.Mutex
 }
 
-func newResource(key string) *resource {
+func newResource(watcher *ResourceWatcher, key string) *resource {
 	return &resource{
-		key:  key,
-		data: []byte{},
+		watcher: watcher,
+		key:     key,
+		data:    []byte{},
 	}
 }
 
@@ -246,7 +248,7 @@ func (rw *ResourceWatcher) Watch(key string) bool {
 	if _, ok := rw.resources[key]; ok {
 		return false
 	} else {
-		rw.resources[key] = newResource(key)
+		rw.resources[key] = newResource(rw, key)
 		rw.addChannel <- rw.resources[key]
 		return true
 	}
