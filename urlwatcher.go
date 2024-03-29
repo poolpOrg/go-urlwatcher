@@ -62,7 +62,7 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 	r.progressMutex.Lock()
 	if r.inProgress {
-		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
+		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), rw.key)
 		r.progressMutex.Unlock()
 		return
 	}
@@ -93,21 +93,21 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 
 		// this is for logging purposes only
 		//nextTry := time.Duration(0)
-		//r.lastError = time.Now()
-		//if !r.lastError.IsZero() {
+		//rw.lastError = time.Now()
+		//if !rw.lastErrorw.IsZero() {
 		//	nextTry = (1 << n_attempts) * time.Second
 		//	if nextTry > config.ErrorMaxInterval {
 		//		nextTry = config.ErrorMaxInterval
 		//	}
 		//}
-		//fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), r.key, err, n_attempts, nextTry)
+		//fmt.Fprintf(os.Stderr, "%s: resource %s errored: %v (attempt:%d, next try in: %s)\n", time.Now(), rw.key, err, n_attempts, nextTry)
 
 	} else if !bytes.Equal(data, r.data) {
 		checksum := sha256.Sum256(data)
-		//if len(r.checksum) == 0 {
-		//	//fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), r.key, checksum)
+		//if len(rw.checksum) == 0 {
+		//	//fmt.Printf("%s: resource %s initialized: %x\n", time.Now(), rw.key, checksum)
 		//} else {
-		//	//fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), r.key, checksum, r.checksum)
+		//	//fmt.Printf("%s: resource %s updated: %x (was: %x)\n", time.Now(), rw.key, checksum, rw.checksum)
 		//}
 		r.data = data
 		r.checksum = checksum[:]
@@ -115,7 +115,7 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 		n_attempts = 0
 		broadcast(r.key, r.data)
 	} else {
-		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
+		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), rw.key, rw.checksum)
 		n_attempts = 0
 	}
 	r.n_attempts = n_attempts
@@ -204,116 +204,116 @@ func NewWatcher(config *Config) *ResourceWatcher {
 	return r
 }
 
-func (r *ResourceWatcher) run() {
+func (rw *ResourceWatcher) run() {
 	for {
 		select {
-		case <-r.stopChannel:
+		case <-rw.stopChannel:
 			//fmt.Printf("%s: stopping goroutine\n", time.Now())
 			return
 
-		case nr := <-r.addChannel:
-			r.fetchesSem <- struct{}{}
+		case res := <-rw.addChannel:
+			rw.fetchesSem <- struct{}{}
 			// blocking ? goroutine ?
-			nr.update(r.watcherConfig, r.broadcast)
-			<-r.fetchesSem
-			//fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
+			res.update(rw.watcherConfig, rw.broadcast)
+			<-rw.fetchesSem
+			//fmt.Printf("%s: resource %s added\n", time.Now(), nrw.key)
 
-		case nr := <-r.delChannel:
-			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
+		case nr := <-rw.delChannel:
+			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nrw.key)
 			_ = nr
 
-		case <-time.After(r.watcherConfig.TickerInterval):
-			r.resourcesMutex.Lock()
-			for _, res := range r.resources {
-				r.fetchesSem <- struct{}{}
+		case <-time.After(rw.watcherConfig.TickerInterval):
+			rw.resourcesMutex.Lock()
+			for _, res := range rw.resources {
+				rw.fetchesSem <- struct{}{}
 				go func(nr *resource) {
-					defer func() { <-r.fetchesSem }()
-					nr.update(r.watcherConfig, r.broadcast)
+					defer func() { <-rw.fetchesSem }()
+					res.update(rw.watcherConfig, rw.broadcast)
 				}(res)
 			}
-			r.resourcesMutex.Unlock()
+			rw.resourcesMutex.Unlock()
 		}
 	}
 }
 
-func (r *ResourceWatcher) Terminate() {
-	r.stopChannel <- struct{}{}
+func (rw *ResourceWatcher) Terminate() {
+	rw.stopChannel <- struct{}{}
 }
 
-func (r *ResourceWatcher) Watch(key string) bool {
-	r.resourcesMutex.Lock()
-	defer r.resourcesMutex.Unlock()
-	if _, ok := r.resources[key]; ok {
+func (rw *ResourceWatcher) Watch(key string) bool {
+	rw.resourcesMutex.Lock()
+	defer rw.resourcesMutex.Unlock()
+	if _, ok := rw.resources[key]; ok {
 		return false
 	} else {
-		r.resources[key] = newResource(key)
-		r.addChannel <- r.resources[key]
+		rw.resources[key] = newResource(key)
+		rw.addChannel <- rw.resources[key]
 		return true
 	}
 }
 
-func (r *ResourceWatcher) Unwatch(key string) bool {
-	r.resourcesMutex.Lock()
-	defer r.resourcesMutex.Unlock()
-	if res, ok := r.resources[key]; !ok {
+func (rw *ResourceWatcher) Unwatch(key string) bool {
+	rw.resourcesMutex.Lock()
+	defer rw.resourcesMutex.Unlock()
+	if res, ok := rw.resources[key]; !ok {
 		return false
 	} else {
-		delete(r.resources, key)
-		r.delChannel <- res
+		delete(rw.resources, key)
+		rw.delChannel <- res
 		return true
 	}
 }
 
-func (r *ResourceWatcher) broadcast(key string, data []byte) {
+func (rw *ResourceWatcher) broadcast(key string, data []byte) {
 	now := time.Now()
-	r.subscribersMutex.Lock()
-	for _, watcher_id := range r.subscribersFromResource[key] {
-		r.callbacksSem <- struct{}{}
+	rw.subscribersMutex.Lock()
+	for _, watcher_id := range rw.subscribersFromResource[key] {
+		rw.callbacksSem <- struct{}{}
 		go func(_watcher_id string) {
-			defer func() { <-r.callbacksSem }()
-			r.subscribers[_watcher_id](now, key, data)
+			defer func() { <-rw.callbacksSem }()
+			rw.subscribers[_watcher_id](now, key, data)
 		}(watcher_id)
 	}
-	r.subscribersMutex.Unlock()
+	rw.subscribersMutex.Unlock()
 }
 
-func (r *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
+func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
 	watcher_id := uuid.NewString()
 
-	r.subscribersMutex.Lock()
-	r.subscribers[watcher_id] = callback
-	r.subscriberToResource[watcher_id] = key
-	r.subscribersFromResource[key] = append(r.subscribersFromResource[key], watcher_id)
-	r.subscribersMutex.Unlock()
+	rw.subscribersMutex.Lock()
+	rw.subscribers[watcher_id] = callback
+	rw.subscriberToResource[watcher_id] = key
+	rw.subscribersFromResource[key] = append(rw.subscribersFromResource[key], watcher_id)
+	rw.subscribersMutex.Unlock()
 
-	r.resourcesMutex.Lock()
-	if res, ok := r.resources[key]; ok {
+	rw.resourcesMutex.Lock()
+	if res, ok := rw.resources[key]; ok {
 		if len(res.data) > 0 {
-			r.callbacksSem <- struct{}{}
+			rw.callbacksSem <- struct{}{}
 			go func() {
-				defer func() { <-r.callbacksSem }()
+				defer func() { <-rw.callbacksSem }()
 				callback(time.Now(), key, res.data)
 			}()
 		}
 	}
-	r.resourcesMutex.Unlock()
+	rw.resourcesMutex.Unlock()
 
 	return func() {
-		r.subscribersMutex.Lock()
-		delete(r.subscribers, watcher_id)
-		delete(r.subscriberToResource, watcher_id)
+		rw.subscribersMutex.Lock()
+		delete(rw.subscribers, watcher_id)
+		delete(rw.subscriberToResource, watcher_id)
 
 		watchers := make([]string, 0)
-		for _, id := range r.subscribersFromResource[key] {
+		for _, id := range rw.subscribersFromResource[key] {
 			if id != watcher_id {
 				watchers = append(watchers, id)
 			}
 		}
 		if len(watchers) == 0 {
-			delete(r.subscribersFromResource, key)
+			delete(rw.subscribersFromResource, key)
 		} else {
-			r.subscribersFromResource[key] = watchers
+			rw.subscribersFromResource[key] = watchers
 		}
-		r.subscribersMutex.Unlock()
+		rw.subscribersMutex.Unlock()
 	}
 }

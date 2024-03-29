@@ -6,9 +6,34 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/poolpOrg/go-urlwatcher"
 )
+
+func humanizeBytes(bytes uint64) string {
+	const (
+		_         = iota
+		kB uint64 = 1 << (10 * iota)
+		mB
+		gB
+		tB
+		pB
+	)
+
+	switch {
+	case bytes < kB:
+		return fmt.Sprintf("%dB", bytes)
+	case bytes < mB:
+		return fmt.Sprintf("%.2fKB", float64(bytes)/float64(kB))
+	case bytes < gB:
+		return fmt.Sprintf("%.2fMB", float64(bytes)/float64(mB))
+	case bytes < tB:
+		return fmt.Sprintf("%.2fGB", float64(bytes)/float64(gB))
+	case bytes < pB:
+		return fmt.Sprintf("%.2fTB", float64(bytes)/float64(tB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}
 
 func init() {
 	go func() {
@@ -24,9 +49,9 @@ func init() {
 
 			fmt.Printf("Time: %v\n", time.Now().UTC().Format(time.RFC822Z))
 			fmt.Printf("Number of Goroutines: %d\n", runtime.NumGoroutine())
-			fmt.Printf("Memory Allocated: %s (max: %s)\n", humanize.Bytes(memStats.Alloc), humanize.Bytes(uint64(maxMemory)))
-			fmt.Printf("Total Memory Allocated: %s\n", humanize.Bytes(memStats.TotalAlloc))
-			fmt.Printf("System Memory: %s\n", humanize.Bytes(memStats.Sys))
+			fmt.Printf("Memory Allocated: %s (max: %s)\n", humanizeBytes(memStats.Alloc), humanizeBytes(uint64(maxMemory)))
+			fmt.Printf("Total Memory Allocated: %s\n", humanizeBytes(memStats.TotalAlloc))
+			fmt.Printf("System Memory: %s\n", humanizeBytes(memStats.Sys))
 			fmt.Printf("GC: %d\n", memStats.NumGC)
 			// Add more stats here as needed
 			fmt.Println("-------------------------------------")
