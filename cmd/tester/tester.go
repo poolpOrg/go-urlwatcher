@@ -88,7 +88,7 @@ func main() {
 	rw.Watch("https://lab.poolp.org/pub/dmesg.txt")
 	rw.Watch("http://localhost:8012")
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 100000; i++ {
 		go subscriberTest(rw)
 	}
 

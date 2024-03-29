@@ -61,7 +61,7 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 	}
 }
 
-func (r *resource) update(config *Config, broadcast func(string, []byte)) {
+func (r *resource) update() {
 	r.progressMutex.Lock()
 	if r.inProgress {
 		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), rw.key)
@@ -79,18 +79,18 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 	// we're retrying an error
 	if r.n_attempts != 0 {
 		retryDelay := (1 << r.n_attempts) * time.Second
-		if retryDelay > config.ErrorMaxInterval {
-			retryDelay = config.ErrorMaxInterval
+		if retryDelay > r.watcher.config.ErrorMaxInterval {
+			retryDelay = r.watcher.config.ErrorMaxInterval
 		}
 		if time.Since(r.lastError) < retryDelay {
 			return
 		}
-	} else if time.Since(r.lastRun) < config.RefreshInterval {
+	} else if time.Since(r.lastRun) < r.watcher.config.RefreshInterval {
 		return
 	}
 
 	n_attempts := r.n_attempts
-	if data, err := r.updater(r.key, config.RequestTimeout); err != nil {
+	if data, err := r.updater(r.key, r.watcher.config.RequestTimeout); err != nil {
 		n_attempts++
 
 		// this is for logging purposes only
@@ -115,7 +115,7 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 		r.checksum = checksum[:]
 		r.lastUpdate = time.Now()
 		n_attempts = 0
-		broadcast(r.key, r.data)
+		r.watcher.broadcast(r.key, r.data)
 	} else {
 		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), rw.key, rw.checksum)
 		n_attempts = 0
@@ -156,7 +156,7 @@ type ResourceWatcher struct {
 	delChannel  chan *resource
 	stopChannel chan struct{}
 
-	watcherConfig *Config
+	config *Config
 
 	fetchesSem   chan struct{}
 	callbacksSem chan struct{}
@@ -197,13 +197,21 @@ func NewWatcher(config *Config) *ResourceWatcher {
 		delChannel:  make(chan *resource),
 		stopChannel: make(chan struct{}),
 
-		watcherConfig: config,
+		config: config,
 
 		fetchesSem:   make(chan struct{}, config.MaxParallelFetches),
 		callbacksSem: make(chan struct{}, config.MaxParallelCallbacks),
 	}
 	go r.run()
 	return r
+}
+
+func (rw *ResourceWatcher) doUpdate(res *resource) {
+	rw.fetchesSem <- struct{}{}
+	go func(nr *resource) {
+		defer func() { <-rw.fetchesSem }()
+		res.update()
+	}(res)
 }
 
 func (rw *ResourceWatcher) run() {
@@ -214,24 +222,16 @@ func (rw *ResourceWatcher) run() {
 			return
 
 		case res := <-rw.addChannel:
-			rw.fetchesSem <- struct{}{}
-			// blocking ? goroutine ?
-			res.update(rw.watcherConfig, rw.broadcast)
-			<-rw.fetchesSem
-			//fmt.Printf("%s: resource %s added\n", time.Now(), nrw.key)
+			rw.doUpdate(res)
 
 		case nr := <-rw.delChannel:
 			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nrw.key)
 			_ = nr
 
-		case <-time.After(rw.watcherConfig.TickerInterval):
+		case <-time.After(rw.config.TickerInterval):
 			rw.resourcesMutex.Lock()
 			for _, res := range rw.resources {
-				rw.fetchesSem <- struct{}{}
-				go func(nr *resource) {
-					defer func() { <-rw.fetchesSem }()
-					res.update(rw.watcherConfig, rw.broadcast)
-				}(res)
+				rw.doUpdate(res)
 			}
 			rw.resourcesMutex.Unlock()
 		}
@@ -266,15 +266,19 @@ func (rw *ResourceWatcher) Unwatch(key string) bool {
 	}
 }
 
+func (rw *ResourceWatcher) notify(watcher_id string, now time.Time, key string, data []byte) {
+	rw.callbacksSem <- struct{}{}
+	go func(_watcher_id string) {
+		defer func() { <-rw.callbacksSem }()
+		rw.subscribers[_watcher_id](now, key, data)
+	}(watcher_id)
+}
+
 func (rw *ResourceWatcher) broadcast(key string, data []byte) {
 	now := time.Now()
 	rw.subscribersMutex.Lock()
 	for _, watcher_id := range rw.subscribersFromResource[key] {
-		rw.callbacksSem <- struct{}{}
-		go func(_watcher_id string) {
-			defer func() { <-rw.callbacksSem }()
-			rw.subscribers[_watcher_id](now, key, data)
-		}(watcher_id)
+		rw.notify(watcher_id, now, key, data)
 	}
 	rw.subscribersMutex.Unlock()
 }
