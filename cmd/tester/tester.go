@@ -69,8 +69,11 @@ func subscriberTest(rw *urlwatcher.ResourceWatcher) {
 	// notify me forever of any change in https://lab.poolp.org/pub/dmesg.txt content
 	//unsubscribe := rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
 	//close(unsubscribe)
-	unsubscribe := rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
-	close(unsubscribe)
+	notifyChan := rw.Subscribe("https://lab.poolp.org/pub/dmesg.txt", notifyMe)
+	//for msg := range notifyChan {
+	//
+	//}
+	close(notifyChan)
 }
 
 func main() {
