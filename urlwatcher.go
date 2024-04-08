@@ -214,6 +214,11 @@ func NewWatcher(config *Config) *ResourceWatcher {
 	return rw
 }
 
+func (rw *ResourceWatcher) doUpdate(r *resource) {
+	defer func() { <-rw.fetchesSem }()
+	r.update(rw.broadcast)
+}
+
 func (rw *ResourceWatcher) run() {
 	for {
 		select {
@@ -236,10 +241,7 @@ func (rw *ResourceWatcher) run() {
 			rw.resourcesMutex.Lock()
 			for _, res := range rw.resources {
 				rw.fetchesSem <- struct{}{}
-				go func(nr *resource) {
-					defer func() { <-rw.fetchesSem }()
-					nr.update(rw.broadcast)
-				}(res)
+				go rw.doUpdate(res)
 			}
 			rw.resourcesMutex.Unlock()
 		}
@@ -274,20 +276,22 @@ func (rw *ResourceWatcher) Unwatch(key string) bool {
 	}
 }
 
+func (rw *ResourceWatcher) notify(watcher_id string, timestamp time.Time, key string, checksum [32]byte, data []byte) {
+	defer func() { <-rw.callbacksSem }()
+	rw.subscribers[watcher_id] <- Event{
+		Timestamp: timestamp,
+		Key:       key,
+		Checksum:  checksum,
+		Data:      data,
+	}
+}
+
 func (rw *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) {
 	now := time.Now()
 	rw.subscribersMutex.Lock()
 	for _, watcher_id := range rw.subscribersFromResource[key] {
 		rw.callbacksSem <- struct{}{}
-		go func(_watcher_id string) {
-			defer func() { <-rw.callbacksSem }()
-			rw.subscribers[_watcher_id] <- Event{
-				Timestamp: now,
-				Key:       key,
-				Checksum:  checksum,
-				Data:      data,
-			}
-		}(watcher_id)
+		go rw.notify(watcher_id, now, key, checksum, data)
 	}
 	rw.subscribersMutex.Unlock()
 }
@@ -307,15 +311,7 @@ func (rw *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
 	if res, ok := rw.resources[key]; ok {
 		if len(res.data) > 0 {
 			rw.callbacksSem <- struct{}{}
-			go func() {
-				defer func() { <-rw.callbacksSem }()
-				eventChan <- Event{
-					Timestamp: time.Now(),
-					Key:       key,
-					Checksum:  [32]byte(res.checksum),
-					Data:      res.data,
-				}
-			}()
+			go rw.notify(watcher_id, time.Now(), key, [32]byte(res.checksum), res.data)
 		}
 	}
 	rw.resourcesMutex.Unlock()
