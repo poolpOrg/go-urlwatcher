@@ -20,6 +20,8 @@ type Event struct {
 }
 
 type resource struct {
+	watcher *ResourceWatcher
+
 	key string
 	//	updater  func(string) ([]byte, error)
 	data     []byte
@@ -35,21 +37,22 @@ type resource struct {
 	progressMutex sync.Mutex
 }
 
-func newResource(key string) *resource {
+func newResource(watcher *ResourceWatcher, key string) *resource {
 	return &resource{
-		key:  key,
-		data: []byte{},
+		watcher: watcher,
+		key:     key,
+		data:    []byte{},
 	}
 }
 
-func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
+func (r *resource) updater(url string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	client := &http.Client{
-		Timeout: timeout,
+		Timeout: r.watcher.config.RequestTimeout,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -66,7 +69,7 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 	}
 }
 
-func (r *resource) update(config *Config, broadcast func(string, [32]byte, []byte)) {
+func (r *resource) update(broadcast func(string, [32]byte, []byte)) {
 	r.progressMutex.Lock()
 	if r.inProgress {
 		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
@@ -84,18 +87,18 @@ func (r *resource) update(config *Config, broadcast func(string, [32]byte, []byt
 	// we're retrying an error
 	if r.n_attempts != 0 {
 		retryDelay := (1 << r.n_attempts) * time.Second
-		if retryDelay > config.ErrorMaxInterval {
-			retryDelay = config.ErrorMaxInterval
+		if retryDelay > r.watcher.config.ErrorMaxInterval {
+			retryDelay = r.watcher.config.ErrorMaxInterval
 		}
 		if time.Since(r.lastError) < retryDelay {
 			return
 		}
-	} else if time.Since(r.lastRun) < config.RefreshInterval {
+	} else if time.Since(r.lastRun) < r.watcher.config.RefreshInterval {
 		return
 	}
 
 	n_attempts := r.n_attempts
-	if data, err := r.updater(r.key, config.RequestTimeout); err != nil {
+	if data, err := r.updater(r.key); err != nil {
 		n_attempts++
 
 		// this is for logging purposes only
@@ -161,7 +164,7 @@ type ResourceWatcher struct {
 	delChannel  chan *resource
 	stopChannel chan struct{}
 
-	watcherConfig *Config
+	config *Config
 
 	fetchesSem   chan struct{}
 	callbacksSem chan struct{}
@@ -191,7 +194,7 @@ func NewWatcher(config *Config) *ResourceWatcher {
 		}
 	}
 
-	r := &ResourceWatcher{
+	rw := &ResourceWatcher{
 		resources: make(map[string]*resource),
 
 		subscribers:             make(map[string]chan Event),
@@ -202,83 +205,83 @@ func NewWatcher(config *Config) *ResourceWatcher {
 		delChannel:  make(chan *resource),
 		stopChannel: make(chan struct{}),
 
-		watcherConfig: config,
+		config: config,
 
 		fetchesSem:   make(chan struct{}, config.MaxParallelFetches),
 		callbacksSem: make(chan struct{}, config.MaxParallelCallbacks),
 	}
-	go r.run()
-	return r
+	go rw.run()
+	return rw
 }
 
-func (r *ResourceWatcher) run() {
+func (rw *ResourceWatcher) run() {
 	for {
 		select {
-		case <-r.stopChannel:
+		case <-rw.stopChannel:
 			//fmt.Printf("%s: stopping goroutine\n", time.Now())
 			return
 
-		case nr := <-r.addChannel:
-			r.fetchesSem <- struct{}{}
+		case nr := <-rw.addChannel:
+			rw.fetchesSem <- struct{}{}
 			// blocking ? goroutine ?
-			nr.update(r.watcherConfig, r.broadcast)
-			<-r.fetchesSem
+			nr.update(rw.broadcast)
+			<-rw.fetchesSem
 			//fmt.Printf("%s: resource %s added\n", time.Now(), nr.key)
 
-		case nr := <-r.delChannel:
+		case nr := <-rw.delChannel:
 			//fmt.Printf("%s: resource %s deleted\n", time.Now(), nr.key)
 			_ = nr
 
-		case <-time.After(r.watcherConfig.TickerInterval):
-			r.resourcesMutex.Lock()
-			for _, res := range r.resources {
-				r.fetchesSem <- struct{}{}
+		case <-time.After(rw.config.TickerInterval):
+			rw.resourcesMutex.Lock()
+			for _, res := range rw.resources {
+				rw.fetchesSem <- struct{}{}
 				go func(nr *resource) {
-					defer func() { <-r.fetchesSem }()
-					nr.update(r.watcherConfig, r.broadcast)
+					defer func() { <-rw.fetchesSem }()
+					nr.update(rw.broadcast)
 				}(res)
 			}
-			r.resourcesMutex.Unlock()
+			rw.resourcesMutex.Unlock()
 		}
 	}
 }
 
-func (r *ResourceWatcher) Terminate() {
-	r.stopChannel <- struct{}{}
+func (rw *ResourceWatcher) Terminate() {
+	rw.stopChannel <- struct{}{}
 }
 
-func (r *ResourceWatcher) Watch(key string) bool {
-	r.resourcesMutex.Lock()
-	defer r.resourcesMutex.Unlock()
-	if _, ok := r.resources[key]; ok {
+func (rw *ResourceWatcher) Watch(key string) bool {
+	rw.resourcesMutex.Lock()
+	defer rw.resourcesMutex.Unlock()
+	if _, ok := rw.resources[key]; ok {
 		return false
 	} else {
-		r.resources[key] = newResource(key)
-		r.addChannel <- r.resources[key]
+		rw.resources[key] = newResource(rw, key)
+		rw.addChannel <- rw.resources[key]
 		return true
 	}
 }
 
-func (r *ResourceWatcher) Unwatch(key string) bool {
-	r.resourcesMutex.Lock()
-	defer r.resourcesMutex.Unlock()
-	if res, ok := r.resources[key]; !ok {
+func (rw *ResourceWatcher) Unwatch(key string) bool {
+	rw.resourcesMutex.Lock()
+	defer rw.resourcesMutex.Unlock()
+	if res, ok := rw.resources[key]; !ok {
 		return false
 	} else {
-		delete(r.resources, key)
-		r.delChannel <- res
+		delete(rw.resources, key)
+		rw.delChannel <- res
 		return true
 	}
 }
 
-func (r *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) {
+func (rw *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) {
 	now := time.Now()
-	r.subscribersMutex.Lock()
-	for _, watcher_id := range r.subscribersFromResource[key] {
-		r.callbacksSem <- struct{}{}
+	rw.subscribersMutex.Lock()
+	for _, watcher_id := range rw.subscribersFromResource[key] {
+		rw.callbacksSem <- struct{}{}
 		go func(_watcher_id string) {
-			defer func() { <-r.callbacksSem }()
-			r.subscribers[_watcher_id] <- Event{
+			defer func() { <-rw.callbacksSem }()
+			rw.subscribers[_watcher_id] <- Event{
 				Timestamp: now,
 				Key:       key,
 				Checksum:  checksum,
@@ -286,26 +289,26 @@ func (r *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) 
 			}
 		}(watcher_id)
 	}
-	r.subscribersMutex.Unlock()
+	rw.subscribersMutex.Unlock()
 }
 
-func (r *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
+func (rw *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
 	watcher_id := uuid.NewString()
 
 	eventChan := make(chan Event)
 
-	r.subscribersMutex.Lock()
-	r.subscribers[watcher_id] = eventChan
-	r.subscriberToResource[watcher_id] = key
-	r.subscribersFromResource[key] = append(r.subscribersFromResource[key], watcher_id)
-	r.subscribersMutex.Unlock()
+	rw.subscribersMutex.Lock()
+	rw.subscribers[watcher_id] = eventChan
+	rw.subscriberToResource[watcher_id] = key
+	rw.subscribersFromResource[key] = append(rw.subscribersFromResource[key], watcher_id)
+	rw.subscribersMutex.Unlock()
 
-	r.resourcesMutex.Lock()
-	if res, ok := r.resources[key]; ok {
+	rw.resourcesMutex.Lock()
+	if res, ok := rw.resources[key]; ok {
 		if len(res.data) > 0 {
-			r.callbacksSem <- struct{}{}
+			rw.callbacksSem <- struct{}{}
 			go func() {
-				defer func() { <-r.callbacksSem }()
+				defer func() { <-rw.callbacksSem }()
 				eventChan <- Event{
 					Timestamp: time.Now(),
 					Key:       key,
@@ -315,26 +318,25 @@ func (r *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
 			}()
 		}
 	}
-	r.resourcesMutex.Unlock()
+	rw.resourcesMutex.Unlock()
 
 	return eventChan, func() {
-		r.subscribersMutex.Lock()
-		close(r.subscribers[watcher_id])
-		delete(r.subscribers, watcher_id)
-		delete(r.subscriberToResource, watcher_id)
+		rw.subscribersMutex.Lock()
+		close(rw.subscribers[watcher_id])
+		delete(rw.subscribers, watcher_id)
+		delete(rw.subscriberToResource, watcher_id)
 
 		watchers := make([]string, 0)
-		for _, id := range r.subscribersFromResource[key] {
+		for _, id := range rw.subscribersFromResource[key] {
 			if id != watcher_id {
 				watchers = append(watchers, id)
 			}
 		}
 		if len(watchers) == 0 {
-			delete(r.subscribersFromResource, key)
+			delete(rw.subscribersFromResource, key)
 		} else {
-			r.subscribersFromResource[key] = watchers
+			rw.subscribersFromResource[key] = watchers
 		}
-		r.subscribersMutex.Unlock()
+		rw.subscribersMutex.Unlock()
 	}
-
 }

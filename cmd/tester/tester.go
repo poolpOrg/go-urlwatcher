@@ -43,7 +43,7 @@ func main() {
 	r.Watch("https://lab.poolp.org/pub/dmesg.txt")
 	r.Watch("http://localhost:8012")
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		//for i := 0; i < 10; i++ {
 		go func() {
 			// notify me forever of any change in https://lab.poolp.org/pub/dmesg.txt content
