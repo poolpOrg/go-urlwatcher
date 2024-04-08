@@ -48,10 +48,14 @@ func main() {
 		go func() {
 			// notify me forever of any change in https://lab.poolp.org/pub/dmesg.txt content
 			s := r.Subscribe("https://lab.poolp.org/pub/dmesg.txt")
+
+			//go func() { time.Sleep(time.Second); s.Unsubscribe() }()
+
 			for msg := range s.Events() {
 				fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
 					msg.Timestamp, msg.Key, msg.Checksum)
 			}
+			fmt.Println("Unsubscribed")
 		}()
 	}
 
