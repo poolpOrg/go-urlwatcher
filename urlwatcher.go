@@ -278,11 +278,16 @@ func (rw *ResourceWatcher) Unwatch(key string) bool {
 
 func (rw *ResourceWatcher) notify(watcher_id string, timestamp time.Time, key string, checksum [32]byte, data []byte) {
 	defer func() { <-rw.callbacksSem }()
-	rw.subscribers[watcher_id] <- Event{
-		Timestamp: timestamp,
-		Key:       key,
-		Checksum:  checksum,
-		Data:      data,
+	rw.subscribersMutex.Lock()
+	defer rw.subscribersMutex.Unlock()
+
+	if eventChan, exists := rw.subscribers[watcher_id]; exists {
+		eventChan <- Event{
+			Timestamp: timestamp,
+			Key:       key,
+			Checksum:  checksum,
+			Data:      data,
+		}
 	}
 }
 
@@ -298,9 +303,10 @@ func (rw *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte)
 
 func (rw *ResourceWatcher) unsubscribe(watcher_id string, key string) {
 	rw.subscribersMutex.Lock()
-	close(rw.subscribers[watcher_id])
+	eventChan := rw.subscribers[watcher_id]
 	delete(rw.subscribers, watcher_id)
 	delete(rw.subscriberToResource, watcher_id)
+	close(eventChan)
 
 	watchers := make([]string, 0)
 	for _, id := range rw.subscribersFromResource[key] {
@@ -320,7 +326,8 @@ type Subscription struct {
 	rw        *ResourceWatcher
 	watcherId string
 	key       string
-	events    chan Event
+
+	events chan Event
 }
 
 func newSubscription(rw *ResourceWatcher, watcher_id string, key string) *Subscription {
