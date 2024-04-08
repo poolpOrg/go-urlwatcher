@@ -316,32 +316,32 @@ func (rw *ResourceWatcher) unsubscribe(watcher_id string, key string) {
 	rw.subscribersMutex.Unlock()
 }
 
-type Subscription struct {
+type subscription struct {
 	rw        *ResourceWatcher
 	watcherId string
 	key       string
 	events    chan Event
 }
 
-func NewSubscription(rw *ResourceWatcher, watcher_id string, key string) *Subscription {
-	return &Subscription{
+func newSubscription(rw *ResourceWatcher, watcher_id string, key string) *subscription {
+	return &subscription{
 		rw:        rw,
 		watcherId: watcher_id,
 		key:       key,
 		events:    make(chan Event),
 	}
 }
-func (s *Subscription) Events() <-chan Event {
+func (s *subscription) Events() <-chan Event {
 	return s.events
 }
-func (s *Subscription) Unsubscribe() {
+func (s *subscription) Unsubscribe() {
 	s.rw.unsubscribe(s.watcherId, s.key)
 }
 
-func (rw *ResourceWatcher) Subscribe(key string) *Subscription {
+func (rw *ResourceWatcher) Subscribe(key string) *subscription {
 	watcher_id := uuid.NewString()
 
-	subscription := NewSubscription(rw, watcher_id, key)
+	subscription := newSubscription(rw, watcher_id, key)
 
 	rw.subscribersMutex.Lock()
 	rw.subscribers[watcher_id] = subscription.events
