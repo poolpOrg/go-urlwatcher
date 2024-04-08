@@ -312,10 +312,6 @@ func (rw *ResourceWatcher) unsubscribe(watcher_id string, key string) {
 	rw.subscribersMutex.Unlock()
 }
 
-func (rw *ResourceWatcher) triggerUnsubscribe(doneChan chan struct{}) {
-	close(doneChan)
-}
-
 type Subscription struct {
 	rw        *ResourceWatcher
 	watcherId string
