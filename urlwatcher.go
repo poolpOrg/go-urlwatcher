@@ -12,6 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
+type Event struct {
+	Timestamp time.Time
+	Key       string
+	Checksum  [32]byte
+	Data      []byte
+}
+
 type resource struct {
 	key string
 	//	updater  func(string) ([]byte, error)
@@ -59,7 +66,7 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 	}
 }
 
-func (r *resource) update(config *Config, broadcast func(string, []byte)) {
+func (r *resource) update(config *Config, broadcast func(string, [32]byte, []byte)) {
 	r.progressMutex.Lock()
 	if r.inProgress {
 		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), r.key)
@@ -113,7 +120,7 @@ func (r *resource) update(config *Config, broadcast func(string, []byte)) {
 		r.checksum = checksum[:]
 		r.lastUpdate = time.Now()
 		n_attempts = 0
-		broadcast(r.key, r.data)
+		broadcast(r.key, checksum, r.data)
 	} else {
 		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), r.key, r.checksum)
 		n_attempts = 0
@@ -145,7 +152,7 @@ type ResourceWatcher struct {
 	resources      map[string]*resource
 	resourcesMutex sync.Mutex
 
-	subscribers             map[string]func(time.Time, string, []byte)
+	subscribers             map[string]chan Event
 	subscriberToResource    map[string]string
 	subscribersFromResource map[string][]string
 	subscribersMutex        sync.Mutex
@@ -187,7 +194,7 @@ func NewWatcher(config *Config) *ResourceWatcher {
 	r := &ResourceWatcher{
 		resources: make(map[string]*resource),
 
-		subscribers:             make(map[string]func(time.Time, string, []byte)),
+		subscribers:             make(map[string]chan Event),
 		subscriberToResource:    make(map[string]string),
 		subscribersFromResource: make(map[string][]string),
 
@@ -264,24 +271,31 @@ func (r *ResourceWatcher) Unwatch(key string) bool {
 	}
 }
 
-func (r *ResourceWatcher) broadcast(key string, data []byte) {
+func (r *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) {
 	now := time.Now()
 	r.subscribersMutex.Lock()
 	for _, watcher_id := range r.subscribersFromResource[key] {
 		r.callbacksSem <- struct{}{}
 		go func(_watcher_id string) {
 			defer func() { <-r.callbacksSem }()
-			r.subscribers[_watcher_id](now, key, data)
+			r.subscribers[_watcher_id] <- Event{
+				Timestamp: now,
+				Key:       key,
+				Checksum:  checksum,
+				Data:      data,
+			}
 		}(watcher_id)
 	}
 	r.subscribersMutex.Unlock()
 }
 
-func (r *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) func() {
+func (r *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
 	watcher_id := uuid.NewString()
 
+	eventChan := make(chan Event)
+
 	r.subscribersMutex.Lock()
-	r.subscribers[watcher_id] = callback
+	r.subscribers[watcher_id] = eventChan
 	r.subscriberToResource[watcher_id] = key
 	r.subscribersFromResource[key] = append(r.subscribersFromResource[key], watcher_id)
 	r.subscribersMutex.Unlock()
@@ -292,14 +306,20 @@ func (r *ResourceWatcher) Subscribe(key string, callback func(time.Time, string,
 			r.callbacksSem <- struct{}{}
 			go func() {
 				defer func() { <-r.callbacksSem }()
-				callback(time.Now(), key, res.data)
+				eventChan <- Event{
+					Timestamp: time.Now(),
+					Key:       key,
+					Checksum:  [32]byte(res.checksum),
+					Data:      res.data,
+				}
 			}()
 		}
 	}
 	r.resourcesMutex.Unlock()
 
-	return func() {
+	return eventChan, func() {
 		r.subscribersMutex.Lock()
+		close(r.subscribers[watcher_id])
 		delete(r.subscribers, watcher_id)
 		delete(r.subscriberToResource, watcher_id)
 
@@ -316,4 +336,5 @@ func (r *ResourceWatcher) Subscribe(key string, callback func(time.Time, string,
 		}
 		r.subscribersMutex.Unlock()
 	}
+
 }

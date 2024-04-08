@@ -63,15 +63,28 @@ func main() {
     r.Watch("https://poolp.org")
     r.Watch("https://poolp.org/test")
 
+
     // notify me forever of any change in https://poolp.org content
-    r.Subscribe("https://poolp.org", notifyMe)
+    go func() {
+        eventChan, _ := r.Subscribe("https://poolp.org")
+        for event := range eventChan {
+            fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
+                msg.Timestamp, msg.Key, msg.Checksum)
+        }
+    }()
+
 
     // notify me of all changes in https://poolp.org/test ...
-    unsubscribe := r.Subscribe("https://poolp.org/test", notifyMe)
+    eventChan2, unsubscribe := r.Subscribe("https://poolp.org/test", notifyMe)
 
     // ... and in a minute, I'll unsubscribe from these events
-    time.Sleep(1 * time.Minute)
-    unsubscribe()
+    go func() { time.Sleep(1*time.Minute); unsubscribe() }()
+
+    for event := range eventChan2 {
+        fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
+            msg.Timestamp, msg.Key, msg.Checksum)
+    }
+    fmt.Println("Unsubscribed !")
 
     // wait forever
     <-make(chan struct{})
