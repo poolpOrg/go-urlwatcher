@@ -47,8 +47,8 @@ func main() {
 		//for i := 0; i < 10; i++ {
 		go func() {
 			// notify me forever of any change in https://lab.poolp.org/pub/dmesg.txt content
-			c, _ := r.Subscribe("https://lab.poolp.org/pub/dmesg.txt")
-			for msg := range c {
+			s := r.Subscribe("https://lab.poolp.org/pub/dmesg.txt")
+			for msg := range s.Events() {
 				fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
 					msg.Timestamp, msg.Key, msg.Checksum)
 			}

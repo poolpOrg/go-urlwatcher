@@ -296,13 +296,55 @@ func (rw *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte)
 	rw.subscribersMutex.Unlock()
 }
 
-func (rw *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
+func (rw *ResourceWatcher) unsubscribe(watcher_id string, key string) {
+	rw.subscribersMutex.Lock()
+	close(rw.subscribers[watcher_id])
+	delete(rw.subscribers, watcher_id)
+	delete(rw.subscriberToResource, watcher_id)
+
+	watchers := make([]string, 0)
+	for _, id := range rw.subscribersFromResource[key] {
+		if id != watcher_id {
+			watchers = append(watchers, id)
+		}
+	}
+	if len(watchers) == 0 {
+		delete(rw.subscribersFromResource, key)
+	} else {
+		rw.subscribersFromResource[key] = watchers
+	}
+	rw.subscribersMutex.Unlock()
+}
+
+type Subscription struct {
+	rw        *ResourceWatcher
+	watcherId string
+	key       string
+	events    chan Event
+}
+
+func NewSubscription(rw *ResourceWatcher, watcher_id string, key string) *Subscription {
+	return &Subscription{
+		rw:        rw,
+		watcherId: watcher_id,
+		key:       key,
+		events:    make(chan Event),
+	}
+}
+func (s *Subscription) Events() <-chan Event {
+	return s.events
+}
+func (s *Subscription) Unsubscribe() {
+	s.rw.unsubscribe(s.watcherId, s.key)
+}
+
+func (rw *ResourceWatcher) Subscribe(key string) *Subscription {
 	watcher_id := uuid.NewString()
 
-	eventChan := make(chan Event)
+	subscription := NewSubscription(rw, watcher_id, key)
 
 	rw.subscribersMutex.Lock()
-	rw.subscribers[watcher_id] = eventChan
+	rw.subscribers[watcher_id] = subscription.events
 	rw.subscriberToResource[watcher_id] = key
 	rw.subscribersFromResource[key] = append(rw.subscribersFromResource[key], watcher_id)
 	rw.subscribersMutex.Unlock()
@@ -316,23 +358,5 @@ func (rw *ResourceWatcher) Subscribe(key string) (<-chan Event, func()) {
 	}
 	rw.resourcesMutex.Unlock()
 
-	return eventChan, func() {
-		rw.subscribersMutex.Lock()
-		close(rw.subscribers[watcher_id])
-		delete(rw.subscribers, watcher_id)
-		delete(rw.subscriberToResource, watcher_id)
-
-		watchers := make([]string, 0)
-		for _, id := range rw.subscribersFromResource[key] {
-			if id != watcher_id {
-				watchers = append(watchers, id)
-			}
-		}
-		if len(watchers) == 0 {
-			delete(rw.subscribersFromResource, key)
-		} else {
-			rw.subscribersFromResource[key] = watchers
-		}
-		rw.subscribersMutex.Unlock()
-	}
+	return subscription
 }
