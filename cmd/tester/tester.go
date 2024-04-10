@@ -60,7 +60,7 @@ func init() {
 	go initStats()
 }
 
-func notifyMe(timestamp time.Time, key string, data []byte) {
+func notifyMe(timestamp time.Time, key string, checksum [32]byte, data []byte) {
 	//fmt.Printf("%s: content has changed at %s, new checksum: %x\n",
 	//	timestamp, key, sha256.Sum256(data))
 }

@@ -13,9 +13,8 @@ import (
 )
 
 type resource struct {
-	watcher *ResourceWatcher
-	key     string
-	//	updater  func(string) ([]byte, error)
+	watcher  *ResourceWatcher
+	key      string
 	data     []byte
 	checksum []byte
 
@@ -116,7 +115,7 @@ func (r *resource) update() {
 		r.checksum = checksum[:]
 		r.lastUpdate = time.Now()
 		n_attempts = 0
-		r.watcher.broadcast(r.key, r.data)
+		r.watcher.broadcast(r.key, checksum, r.data)
 	} else {
 		//fmt.Printf("%s: resource %s has not changed: %x\n", time.Now(), rw.key, rw.checksum)
 		n_attempts = 0
@@ -148,7 +147,7 @@ type ResourceWatcher struct {
 	resources      map[string]*resource
 	resourcesMutex sync.Mutex
 
-	subscribers             map[string]func(time.Time, string, []byte)
+	subscribers             map[string]func(time.Time, string, [32]byte, []byte)
 	subscriberToResource    map[string]string
 	subscribersFromResource map[string][]string
 	subscribersMutex        sync.Mutex
@@ -191,7 +190,7 @@ func NewWatcher(config *Config) *ResourceWatcher {
 	r := &ResourceWatcher{
 		resources: make(map[string]*resource),
 
-		subscribers:             make(map[string]func(time.Time, string, []byte)),
+		subscribers:             make(map[string]func(time.Time, string, [32]byte, []byte)),
 		subscriberToResource:    make(map[string]string),
 		subscribersFromResource: make(map[string][]string),
 
@@ -266,24 +265,24 @@ func (rw *ResourceWatcher) Unwatch(key string) bool {
 	}
 }
 
-func (rw *ResourceWatcher) notify(watcher_id string, now time.Time, key string, data []byte) {
+func (rw *ResourceWatcher) notify(watcher_id string, now time.Time, key string, checksum [32]byte, data []byte) {
 	defer func() { <-rw.callbacksSem }()
-	rw.subscribers[watcher_id](now, key, data)
+	rw.subscribers[watcher_id](now, key, checksum, data)
 }
 
-func (rw *ResourceWatcher) broadcast(key string, data []byte) {
+func (rw *ResourceWatcher) broadcast(key string, checksum [32]byte, data []byte) {
 	now := time.Now()
 	rw.subscribersMutex.Lock()
 	for _, watcher_id := range rw.subscribersFromResource[key] {
 		rw.callbacksSem <- struct{}{}
-		go rw.notify(watcher_id, now, key, data)
+		go rw.notify(watcher_id, now, key, checksum, data)
 	}
 	rw.subscribersMutex.Unlock()
 }
 
-func (rw *ResourceWatcher) triggerCallback(callback func(time.Time, string, []byte), timestamp time.Time, key string, data []byte) {
+func (rw *ResourceWatcher) triggerCallback(callback func(time.Time, string, [32]byte, []byte), timestamp time.Time, key string, checksum [32]byte, data []byte) {
 	defer func() { <-rw.callbacksSem }()
-	callback(timestamp, key, data)
+	callback(timestamp, key, checksum, data)
 
 }
 
@@ -307,7 +306,7 @@ func (rw *ResourceWatcher) detectCloseAndUnsubscribe(closeChan chan interface{},
 	rw.subscribersMutex.Unlock()
 }
 
-func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, []byte)) chan interface{} {
+func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string, [32]byte, []byte)) chan interface{} {
 	watcher_id := uuid.NewString()
 
 	rw.subscribersMutex.Lock()
@@ -320,7 +319,7 @@ func (rw *ResourceWatcher) Subscribe(key string, callback func(time.Time, string
 	if res, ok := rw.resources[key]; ok {
 		if len(res.data) > 0 {
 			rw.callbacksSem <- struct{}{}
-			go rw.triggerCallback(callback, time.Now(), key, res.data)
+			go rw.triggerCallback(callback, time.Now(), key, [32]byte(res.checksum), res.data)
 		}
 	}
 	rw.resourcesMutex.Unlock()
