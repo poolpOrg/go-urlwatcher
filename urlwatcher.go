@@ -61,10 +61,10 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 }
 
 func (r *resource) update() {
+	defer func() { <-r.watcher.fetchesSem }()
 	r.progressMutex.Lock()
 	if r.inProgress {
 		//fmt.Fprintf(os.Stderr, "%s: resource %s fetch already in progress\n", time.Now(), rw.key)
-		defer func() { <-r.watcher.fetchesSem }()
 		r.progressMutex.Unlock()
 		return
 	}
