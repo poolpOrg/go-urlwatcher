@@ -42,6 +42,10 @@ func (r *resource) updater(url string, timeout time.Duration) ([]byte, error) {
 		return nil, err
 	}
 
+	for k, v := range r.watcher.config.Headers {
+		req.Header.Set(k, v)
+	}
+
 	client := &http.Client{
 		Timeout: timeout,
 	}
@@ -132,6 +136,8 @@ type Config struct {
 
 	MaxParallelFetches   int
 	MaxParallelCallbacks int
+
+	Headers map[string]string
 }
 
 var DefaultWatcherConfig = Config{
@@ -141,6 +147,8 @@ var DefaultWatcherConfig = Config{
 	TickerInterval:       1 * time.Second,
 	MaxParallelFetches:   10,
 	MaxParallelCallbacks: 100,
+
+	Headers: map[string]string{},
 }
 
 type ResourceWatcher struct {
